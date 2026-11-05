@@ -58,6 +58,7 @@ resource "aws_security_group" "vmpipeline_sg" {
   }
 
   egress {
+    description = "Tout le trafic sortant (apt, mises a jour)"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -78,9 +79,16 @@ resource "aws_instance" "vmpipeline" {
   user_data                   = file("${path.module}/user_data.sh")
   user_data_replace_on_change = true
 
+  # IMDSv2 obligatoire (protection contre le vol de credentials via SSRF)
+  metadata_options {
+    http_endpoint = "enabled"
+    http_tokens   = "required"
+  }
+
   root_block_device {
     volume_size           = var.disk_size_gb
     volume_type           = "gp3"
+    encrypted             = true
     delete_on_termination = true
   }
 

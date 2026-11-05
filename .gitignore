@@ -4,3 +4,5 @@
 tfplan
 *.pem
 crash.log
+trivy-results.sarif
+terraform-test.log

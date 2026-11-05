@@ -1,0 +1,6 @@
+# Exceptions Trivy acceptées (justifiées) pour vmpipeline
+# Sortant illimité : nécessaire pour apt-get (installation de Nginx)
+AWS-0104
+# SSH ouvert par défaut (AWS Academy, IP du poste variable) :
+# restreindre via la variable ssh_cidr en production
+AWS-0107

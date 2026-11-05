@@ -1,18 +1,149 @@
-name: Deploy vmpipeline
+name: CI/CD vmpipeline
 
+# CI (tests + qualité + sécurité) sur chaque push et pull request
+# CD (déploiement AWS) uniquement sur push vers master, si toute la CI est verte
 on:
   push:
+    branches: [master]
+  pull_request:
     branches: [master]
   workflow_dispatch:
 
 env:
   AWS_REGION: us-east-1
   TF_IN_AUTOMATION: "true"
+  TRIVY_VERSION: "0.70.0"
 
 jobs:
-  terraform:
-    name: Terraform - EC2 vmpipeline + Nginx
+  # ===========================================================================
+  # CI 1 — Lint + tests unitaires (aucun identifiant AWS nécessaire)
+  # ===========================================================================
+  tests:
+    name: 1. Lint & tests unitaires
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: terraform init (sans backend)
+        run: terraform init -input=false -backend=false
+
+      - name: terraform validate
+        run: terraform validate
+
+      - name: ShellCheck du script user_data
+        run: shellcheck user_data.sh
+
+      - name: Tests unitaires Terraform (provider AWS simulé)
+        run: |
+          set -o pipefail
+          terraform test -no-color 2>&1 | tee terraform-test.log
+
+      - name: Résumé des tests
+        if: always()
+        run: |
+          {
+            echo "### 🧪 Tests unitaires Terraform"
+            echo '```'
+            grep -E 'run "|passed|failed' terraform-test.log || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ===========================================================================
+  # CI 2 — Analyse qualité SonarQube
+  # Secrets requis : SONAR_TOKEN, SONAR_HOST_URL
+  # ===========================================================================
+  sonarqube:
+    name: 2. Analyse SonarQube
+    runs-on: ubuntu-latest
+    needs: tests
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+    steps:
+      - name: Récupérer le code (historique complet pour Sonar)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Vérifier la configuration Sonar
+        id: check
+        run: |
+          if [ -z "$SONAR_TOKEN" ] || [ -z "$SONAR_HOST_URL" ]; then
+            echo "::warning::SONAR_TOKEN / SONAR_HOST_URL non configurés — analyse SonarQube ignorée"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Scan SonarQube + attente du Quality Gate
+        if: steps.check.outputs.enabled == 'true'
+        uses: SonarSource/sonarqube-scan-action@v5
+        with:
+          args: >
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
+
+  # ===========================================================================
+  # CI 3 — Scan de sécurité Trivy (IaC + secrets)
+  # ===========================================================================
+  trivy:
+    name: 3. Scan sécurité Trivy
+    runs-on: ubuntu-latest
+    needs: tests
+    permissions:
+      contents: read
+      security-events: write # publication du rapport dans l'onglet Security
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Rapport SARIF (onglet Security de GitHub)
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src aquasec/trivy:${TRIVY_VERSION} \
+            config --skip-version-check --format sarif --output trivy-results.sarif .
+
+      - name: Publier le rapport SARIF
+        if: always()
+        continue-on-error: true # nécessite GitHub code scanning (gratuit en repo public)
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-iac
+
+      - name: Trivy — mauvaises configurations IaC (bloquant si HIGH/CRITICAL)
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src aquasec/trivy:${TRIVY_VERSION} \
+            config --skip-version-check --exit-code 1 \
+            --severity HIGH,CRITICAL --ignorefile .trivyignore .
+
+      - name: Trivy — secrets dans le code (bloquant)
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src aquasec/trivy:${TRIVY_VERSION} \
+            fs --skip-version-check --scanners secret --exit-code 1 .
+
+  # ===========================================================================
+  # CD — Déploiement AWS (uniquement push sur master, après CI verte)
+  # ===========================================================================
+  deploy:
+    name: 4. Déploiement - EC2 vmpipeline + Nginx
+    runs-on: ubuntu-latest
+    needs: [tests, sonarqube, trivy]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    concurrency:
+      group: deploy-vmpipeline
+      cancel-in-progress: false
     defaults:
       run:
         working-directory: terraform
@@ -55,19 +186,13 @@ jobs:
             -backend-config="key=vmpipeline/terraform.tfstate" \
             -backend-config="region=${AWS_REGION}"
 
-      - name: 7. terraform fmt
-        run: terraform fmt -check -recursive
-
-      - name: 8. terraform validate
-        run: terraform validate
-
-      - name: 9. terraform plan
+      - name: 7. terraform plan
         run: terraform plan -input=false -out=tfplan
 
-      - name: 10. terraform apply
+      - name: 8. terraform apply
         run: terraform apply -input=false -auto-approve tfplan
 
-      - name: 11. Tester la page web Nginx
+      - name: 9. Test de fumée - page web Nginx
         run: |
           IP=$(terraform output -raw public_ip)
           echo "URL : http://${IP}"
