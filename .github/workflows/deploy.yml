@@ -1,0 +1,84 @@
+name: Deploy vmpipeline
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  terraform:
+    name: Terraform - EC2 vmpipeline + Nginx
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+
+    steps:
+      - name: 1. Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: 2. Configurer les identifiants AWS Academy
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: 3. Vérifier l'identité AWS
+        run: aws sts get-caller-identity
+
+      - name: 4. Installer Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: 5. Créer le bucket S3 du state (si absent)
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET="tfstate-${ACCOUNT_ID}-vmpipeline"
+          echo "TF_BUCKET=${BUCKET}" >> "$GITHUB_ENV"
+          if ! aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            aws s3api create-bucket --bucket "$BUCKET" --region "$AWS_REGION"
+            aws s3api put-bucket-versioning --bucket "$BUCKET" \
+              --versioning-configuration Status=Enabled
+          fi
+
+      - name: 6. terraform init
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${TF_BUCKET}" \
+            -backend-config="key=vmpipeline/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION}"
+
+      - name: 7. terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: 8. terraform validate
+        run: terraform validate
+
+      - name: 9. terraform plan
+        run: terraform plan -input=false -out=tfplan
+
+      - name: 10. terraform apply
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: 11. Tester la page web Nginx
+        run: |
+          IP=$(terraform output -raw public_ip)
+          echo "URL : http://${IP}"
+          for i in $(seq 1 30); do
+            if curl -s --max-time 5 "http://${IP}" | grep -q "Mon premier pipeline"; then
+              echo "✅ Mon premier pipeline réussi → http://${IP}"
+              echo "### ✅ Déploiement réussi : http://${IP}" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "Attente de Nginx... ($i/30)"
+            sleep 10
+          done
+          echo "❌ La page web ne répond pas"
+          exit 1

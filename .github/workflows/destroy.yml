@@ -1,0 +1,38 @@
+name: Destroy vmpipeline
+
+on:
+  workflow_dispatch:   # lancement manuel uniquement (onglet Actions)
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: terraform init
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          terraform init -input=false \
+            -backend-config="bucket=tfstate-${ACCOUNT_ID}-vmpipeline" \
+            -backend-config="key=vmpipeline/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION}"
+
+      - name: terraform destroy
+        run: terraform destroy -input=false -auto-approve
