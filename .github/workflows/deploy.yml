@@ -50,6 +50,10 @@ jobs:
           set -o pipefail
           terraform test -no-color 2>&1 | tee terraform-test.log
 
+      - name: Tests unitaires du site (panier JavaScript)
+        working-directory: site
+        run: node --test tests/*.test.js
+
       - name: Résumé des tests
         if: always()
         run: |
@@ -137,7 +141,7 @@ jobs:
   # CD — Déploiement AWS (uniquement push sur master, après CI verte)
   # ===========================================================================
   deploy:
-    name: 4. Déploiement - EC2 vmpipeline + Nginx
+    name: 4. Déploiement - EC2 vmpipeline + boutique
     runs-on: ubuntu-latest
     needs: [tests, sonarqube, trivy]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
@@ -192,17 +196,50 @@ jobs:
       - name: 8. terraform apply
         run: terraform apply -input=false -auto-approve tfplan
 
-      - name: 9. Test de fumée - page web Nginx
+      # Mise à jour du site SANS recréer la VM : copie des fichiers via
+      # EC2 Instance Connect (clé SSH temporaire valable 60 s, aucun secret requis)
+      - name: 9. Déployer le site e-commerce sur vmpipeline
+        run: |
+          INSTANCE_ID=$(terraform output -raw instance_id)
+          IP=$(terraform output -raw public_ip)
+          ssh-keygen -t ed25519 -f "$RUNNER_TEMP/deploy_key" -N "" -q
+          SSH_OPTS="-i $RUNNER_TEMP/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR"
+
+          for i in $(seq 1 20); do
+            aws ec2-instance-connect send-ssh-public-key \
+              --instance-id "$INSTANCE_ID" --instance-os-user ubuntu \
+              --ssh-public-key "file://$RUNNER_TEMP/deploy_key.pub" > /dev/null
+            # shellcheck disable=SC2086
+            if tar -C ../site --exclude=tests -czf - . | ssh $SSH_OPTS "ubuntu@${IP}" '
+                set -e
+                cloud-init status --wait > /dev/null || true
+                rm -rf /tmp/site && mkdir -p /tmp/site && tar -xzf - -C /tmp/site
+                sudo find /var/www/html -mindepth 1 -delete
+                sudo cp -a /tmp/site/. /var/www/html/
+                sudo chown -R www-data:www-data /var/www/html
+                rm -rf /tmp/site'; then
+              echo "✅ Site copié sur vmpipeline"
+              exit 0
+            fi
+            echo "SSH pas encore prêt... ($i/20)"
+            sleep 15
+          done
+          echo "❌ Impossible de déployer le site"
+          exit 1
+
+      - name: 10. Test de fumée - boutique en ligne
         run: |
           IP=$(terraform output -raw public_ip)
           echo "URL : http://${IP}"
           for i in $(seq 1 30); do
-            if curl -s --max-time 5 "http://${IP}" | grep -q "Mon premier pipeline"; then
-              echo "✅ Mon premier pipeline réussi → http://${IP}"
-              echo "### ✅ Déploiement réussi : http://${IP}" >> "$GITHUB_STEP_SUMMARY"
+            if curl -s --max-time 5 "http://${IP}" | grep -q "Atelier Iris Optique" \
+               && curl -sf --max-time 5 -o /dev/null "http://${IP}/js/cart.js" \
+               && curl -sf --max-time 5 -o /dev/null "http://${IP}/css/style.css"; then
+              echo "✅ Boutique Atelier Iris Optique en ligne → http://${IP}"
+              echo "### 👓 Boutique en ligne : http://${IP}" >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
-            echo "Attente de Nginx... ($i/30)"
+            echo "Attente du site... ($i/30)"
             sleep 10
           done
           echo "❌ La page web ne répond pas"

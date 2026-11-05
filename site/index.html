@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Atelier Iris Optique — Lunettes de vue et de soleil</title>
+  <meta name="description" content="Atelier Iris Optique : lunettes de vue, lunettes de soleil, examen de vue offert et ajustage sur mesure.">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a href="#" class="logo" aria-label="Accueil Atelier Iris Optique">
+      <svg viewBox="0 0 48 24" width="44" height="22" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" /><circle cx="36" cy="12" r="9" /><path d="M21 11q3-3 6 0" />
+      </svg>
+      <span>Atelier <strong>Iris</strong> Optique</span>
+    </a>
+    <nav class="menu">
+      <a href="#catalogue">Catalogue</a>
+      <a href="#services">Services</a>
+      <a href="#contact">Contact</a>
+    </nav>
+    <button class="cart-btn" id="cart-open" aria-label="Ouvrir le panier">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+        <path d="M6 7h12l-1 13H7L6 7zm3 0a3 3 0 0 1 6 0" />
+      </svg>
+      <span class="badge" id="cart-count">0</span>
+    </button>
+  </header>
+
+  <section class="hero">
+    <div class="hero-text">
+      <p class="eyebrow">Collection automne 2026</p>
+      <h1>Voir juste,<br>avec style.</h1>
+      <p>Montures de créateurs, verres de précision et ajustage sur mesure par nos opticiens diplômés.</p>
+      <div class="hero-cta">
+        <a href="#catalogue" class="btn btn-primary">Découvrir les montures</a>
+        <a href="#services" class="btn btn-ghost">Examen de vue offert</a>
+      </div>
+      <ul class="perks">
+        <li>🚚 Livraison offerte dès 300 DT</li>
+        <li>↩️ Retour gratuit 30 jours</li>
+        <li>🛡️ Garantie 2 ans</li>
+      </ul>
+    </div>
+    <div class="hero-visual" aria-hidden="true" id="hero-visual"></div>
+  </section>
+
+  <main id="catalogue" class="catalogue">
+    <div class="section-head">
+      <h2>Nos montures</h2>
+      <p id="result-count" aria-live="polite"></p>
+    </div>
+
+    <form class="filters" id="filters" aria-label="Filtrer les montures">
+      <fieldset class="chips">
+        <legend class="sr-only">Catégorie</legend>
+        <label><input type="radio" name="category" value="all" checked><span>Toutes</span></label>
+        <label><input type="radio" name="category" value="vue"><span>Vue</span></label>
+        <label><input type="radio" name="category" value="soleil"><span>Soleil</span></label>
+      </fieldset>
+      <label class="select">
+        Forme
+        <select name="shape">
+          <option value="all">Toutes les formes</option>
+          <option value="ronde">Ronde</option>
+          <option value="carree">Carrée</option>
+          <option value="aviateur">Aviateur</option>
+          <option value="papillon">Papillon</option>
+        </select>
+      </label>
+      <label class="range">
+        Prix max : <output id="price-out">400 DT</output>
+        <input type="range" name="maxPrice" min="100" max="400" step="10" value="400">
+      </label>
+    </form>
+
+    <div class="grid" id="product-grid"></div>
+  </main>
+
+  <section id="services" class="services">
+    <h2>Le savoir-faire de l'atelier</h2>
+    <div class="service-list">
+      <article>
+        <span class="icon">👁️</span>
+        <h3>Examen de vue offert</h3>
+        <p>Contrôle de l'acuité visuelle en magasin, sur rendez-vous, par un opticien diplômé.</p>
+      </article>
+      <article>
+        <span class="icon">🔧</span>
+        <h3>Ajustage sur mesure</h3>
+        <p>Vos montures ajustées à la morphologie de votre visage, et réglages gratuits à vie.</p>
+      </article>
+      <article>
+        <span class="icon">🔬</span>
+        <h3>Verres de précision</h3>
+        <p>Unifocaux, progressifs, anti-lumière bleue, photochromiques : nous trouvons le bon verre.</p>
+      </article>
+    </div>
+  </section>
+
+  <footer id="contact" class="footer">
+    <div>
+      <h3>Atelier Iris Optique</h3>
+      <p>Magasin de démonstration — projet pédagogique.</p>
+    </div>
+    <div>
+      <h3>Horaires</h3>
+      <p>Lun–Sam : 9h – 19h<br>Dimanche : fermé</p>
+    </div>
+    <div>
+      <h3>Contact</h3>
+      <p>contact@atelier-iris.example<br>Prise de rendez-vous en ligne bientôt disponible</p>
+    </div>
+    <p class="copy">© 2026 Atelier Iris Optique · Déployé par GitHub Actions + Terraform sur <strong>vmpipeline</strong></p>
+  </footer>
+
+  <!-- Panier -->
+  <div class="overlay" id="overlay" hidden></div>
+  <aside class="drawer" id="drawer" aria-label="Panier" aria-hidden="true">
+    <div class="drawer-head">
+      <h2>Votre panier</h2>
+      <button class="icon-btn" id="cart-close" aria-label="Fermer le panier">✕</button>
+    </div>
+    <ul class="cart-lines" id="cart-lines"></ul>
+    <p class="empty" id="cart-empty">Votre panier est vide.</p>
+    <div class="drawer-foot" id="cart-summary">
+      <p class="shipping-hint" id="shipping-hint"></p>
+      <dl>
+        <div><dt>Sous-total</dt><dd id="cart-subtotal"></dd></div>
+        <div><dt>Livraison</dt><dd id="cart-shipping"></dd></div>
+        <div class="grand"><dt>Total</dt><dd id="cart-total"></dd></div>
+      </dl>
+      <form id="checkout" class="checkout">
+        <p class="demo-note">Démo : paiement au retrait en magasin, aucune donnée bancaire demandée.</p>
+        <input name="name" placeholder="Nom complet" required autocomplete="name">
+        <input name="phone" placeholder="Téléphone" required inputmode="tel" pattern="[0-9 +]{8,}" autocomplete="tel">
+        <button class="btn btn-primary" type="submit">Réserver la commande</button>
+      </form>
+    </div>
+  </aside>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="js/cart.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
